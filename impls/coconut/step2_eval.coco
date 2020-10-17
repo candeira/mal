@@ -1,0 +1,63 @@
+import readline
+
+from printer import print_str
+from reader import read_str
+from mal_types import Keyword, Symbol, MalList
+
+repl_env = {'+': (a, b) -> a + b,
+            '-': (a, b) -> a - b,
+            '*': (a, b) -> a * b,
+            '/': (a, b) -> int(a / b)}
+
+
+def eval_ast(mal_ast):
+    case mal_ast:
+        match sy is Symbol:     return repl_env[sy]
+        match li is MalList:    return MalList(eval_ast(el) for el in li)
+
+
+def READ(an_input):
+    """
+    """
+    return read_str(an_input)
+
+
+def EVAL(an_input, repl_env):
+    """
+    """
+    case an_input:
+        match li is MalList:
+             if li:
+                 f, args = eval_ast(li)
+                 return f(args)
+             else:
+                 return li
+        match not_a_list:
+             return eval_ast(not_a_list)
+
+
+def PRINT(a_thing):
+    """
+    """
+    print(print_str(a_thing, print_readably=True))
+
+
+def REPL():
+    """
+    The Read-Eval-Print Loop, aka REPL!
+    """
+    while True:
+        try:
+            line = input("user> ")
+        except EOFError:
+            break
+        else:
+            print(repl_env)
+            (line
+            |> READ
+            |> EVAL$(?, repl_env)
+            |> PRINT)
+
+
+if __name__ == "__main__":
+    REPL()

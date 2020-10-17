@@ -1,0 +1,45 @@
+# MAL Types
+#
+# For now, we'll let Python/Coconut administer:
+# - Numerics
+
+
+class MalWrapper():
+    def __init__(self, value):
+        self.value = value
+
+
+class SeqRepr():
+    def __repr__(self):
+        return self.opener + " ".join(repr(elem) for elem in self) + self.closer
+    
+
+class Symbol(MalWrapper):
+    def __repr__(self):
+        return self.value
+
+
+class Keyword(MalWrapper):
+    def __repr__(self):
+        return ":" + self.value
+
+
+class Vector(MalWrapper, SeqRepr):
+    opener = "["
+    closer = "]"
+
+    def __iter__(self):
+        return iter(self.value)
+
+
+class MalList(MalWrapper, SeqRepr):
+    opener = "("
+    closer = ")"
+
+    def __iter__(self):
+        return iter(self.value)
+
+
+class MalString(MalWrapper):
+    def __repr__(self):
+        return "\"" + self.value + "\""

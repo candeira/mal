@@ -1,0 +1,129 @@
+import re
+
+from mal_types import Symbol, Keyword, Vector, MalList, MalString
+
+
+tokenizer = re.compile(r"""
+    [\s,]*              # Ignore any # of whitespaces or commas
+    (
+    ~@                  # Capture the special two-characters ~@
+    |                   # or
+    [\[\]{}()'`~^@]     # Capture any special single character []{}()'`~^@
+    |                   # or
+    "(?:\\.|[^\\"])*"   # Start capturing at a double-quote and stop at the
+                        # next double-quote unless it's preceeded by backlash
+                        # in which case it's included until next double-quote
+                        # (this tokenizes strings)
+    |                   # or
+    ;.*                 # Capture any sequence of characters starting with ;
+                        # (this tokenizes comments)
+    |                   # or
+    [^\s\[\]{}('"`,;)]+ # Capture any sequence of one or more non-special
+                        # characters
+                        # (this will tokenize symbols, numbers, "true",
+                        # "false", and "nil")
+    )
+""", re.X)
+
+
+class MalSyntaxError(SyntaxError):
+      pass
+
+
+class Reader():
+    """
+    """
+    def __init__(self, a_string):
+        """
+        """
+        self.tokens = tokenizer.findall(a_string)
+        self.pos = 0
+
+    def next(self):
+        try:
+            token = self.tokens[self.pos]
+        except IndexError:
+            raise StopIteration
+        else:
+            self.pos = self.pos + 1
+            return token
+
+    def peek(self):
+        try:
+            return self.tokens[self.pos]
+        except IndexError:
+            return None
+       
+    # let's also turn Reader into an iterator/iterable
+    def __next__(self):
+        return next(self)
+
+    def __iter__(self):
+        return self
+
+
+def read_str(an_input):
+    return read_form(Reader(an_input))
+
+
+def read_form(reader):
+    """
+    This function will peek at the first token in the Reader object and switch
+    on the first character of that token. If the character is a left paren then
+    read_list is called with the Reader object. Otherwise, read_atom is called
+    with the Reader Object.
+    """
+    case reader.peek():
+        match "(":        return read_list(reader)
+        match "[":        return read_vector(reader)
+        match _:          return read_atom(reader)
+
+
+def read_vector(reader):
+    return read_sequence(reader, Vector)
+
+
+def read_list(reader):
+    return read_sequence(reader, MalList)
+
+
+def read_sequence(reader, seq_type):
+    elements = []
+    opener, closer = seq_type.opener, seq_type.closer
+    # skip the opening bracket, while ensuring it's the correct one
+    assert opener == reader.next()
+    while reader.peek() != closer:
+        try:
+            elements.append(read_form(reader))
+        except StopIteration:
+            pass
+            # this is not yet really implemented in the tests
+            # raise Exception("expected ')', got EOF")
+    # skip closing parenthesis, throw value away
+    _ = reader.next()
+    return seq_type(elements)
+    
+
+def read_atom(reader):
+    """
+    This function will look at the contents of the token and return the appropriate
+    scalar (simple/single) data type value. Initially, you can just implement
+    numbers (integers) and symbols. This will allow you to proceed through the next
+    couple of steps before you will need to implement the other fundamental mal
+    types: nil, true, false, and string. The remaining mal types: keyword, vector,
+    hash-map, and atom do not nfileeed to be implemented until step 9 (but can be
+    implemented at any point between this step and that).
+    """
+    # in theory, guaranteed not to throw, because we always peeked first
+    token = reader.next()
+    match "\"" + string_value + "\"" in token:   return string_value
+    match ":" + keyword_value in token:          return Keyword(keyword_value)
+    else: try:
+        return int(token)
+    except ValueError:
+        return Symbol(token)
+    
+
+if __name__ == '__main__':
+    import doctest
+    doctest.testmod()

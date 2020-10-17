@@ -1,0 +1,10 @@
+from mal_types import Symbol, Keyword
+
+def print_str(mal_obj, print_readably=False):
+    """
+    Does the opposite of read_str: take a mal data structure and return a string
+    representation of it.
+    """
+    # implementation of print_readably for strings is deferred
+    return repr(mal_obj)
+            

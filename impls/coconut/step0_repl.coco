@@ -1,0 +1,35 @@
+import readline
+
+def READ(an_input):
+    """
+    """
+    return an_input
+
+def EVAL(an_input):
+    """
+    """
+    return an_input
+
+def PRINT(a_thing):
+    """
+    """
+    print(a_thing)
+
+def REPL():
+    """
+    The Read-Eval-Print Loop, aka REPL!
+    """
+    while True:
+        try:
+            line = input("user> ")
+        except EOFError:
+            break
+        else:
+            (line
+            |> READ
+            |> EVAL
+            |> PRINT)
+
+
+if __name__ == "__main__":
+    REPL()
