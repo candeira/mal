@@ -9,6 +9,7 @@ pub fn build(b: *Builder) void {
 
     const exes = [_]*LibExeObjStep{
         b.addExecutable("step0_repl", "step0_repl.zig"),
+        b.addExecutable("re2", "re2.zig"),
         // b.addExecutable("step1_read_print", "step1_read_print.zig"),
         // b.addExecutable("step2_eval", "step2_eval.zig"),
         // b.addExecutable("step3_env", "step3_env.zig"),
@@ -24,7 +25,7 @@ pub fn build(b: *Builder) void {
     for (exes) |exe| {
         exe.setBuildMode(mode);
         exe.linkSystemLibrary("c");
-        // exe.linkSystemLibrary("pcre");
+        exe.linkSystemLibrary("pcre2-8");
         const run_cmd = exe.run();
         const step = b.step(exe.name, exe.name);
         step.dependOn(&run_cmd.step);
