@@ -2,20 +2,16 @@ const std = @import("std");
 const allocator = std.heap.c_allocator;
 
 const pcre2 = @cImport({
-    @cInclude("limits.h");
-    @cInclude("stdlib.h");
-    @cInclude("inttypes.h");
-    @cInclude("stddef.h");
-    @cInclude("stdio.h");
     @cDefine("PCRE2_CODE_UNIT_WIDTH", "8");
     @cInclude("pcre2.h");
 });
 
 // zig strings are immutable slices of utf8
-// for C, we need pointers, not slices.
+// for C, we'll pass their pointers
 // Not 0-sentineled because pcre2 accepts length
 const Str = []const u8;
-// const pcre2_size = pcre2.PCRE2_SIZE;
+
+const pcre2_size = pcre2.PCRE2_SIZE;
 // can't find the values off pcre2.h;
 // reverse engineering from compiler errors
 const pcre2_errornumber_t = c_int;
@@ -45,10 +41,20 @@ const Pattern = struct {
     errorbuffer: pcre2_errorbuffer_t = undefined,
     errorlength: pcre2_errorlength_t = 0,
 
+    pub fn errormessage(self: Pattern) ?Str {
+        if (self.re_code == null) {
+            const end = @bitCast(u32, self.errorlength);
+            return self.errorbuffer[0..end];
+        } else {
+            return null;
+        }
+    }
+
     pub fn init(pattern: Str) Pattern {
         var errornumber: pcre2_errornumber_t = 0;
         var erroroffset: pcre2_erroroffset_t = 0;
 
+        // the compiled pcre2 code object
         const re_code: ?*pcre2.pcre2_code_8 = pcre2.pcre2_compile_8(
             pattern.ptr,
             pattern.len,
@@ -65,6 +71,7 @@ const Pattern = struct {
             .erroroffset = erroroffset,
         };
 
+        // if there's an error, find the corresponding message
         if (re_code == null) {
             var errorbuffer = @ptrCast([*]u8, &matcher.errorbuffer);
             matcher.errorlength = pcre2.pcre2_get_error_message_8(
@@ -88,20 +95,28 @@ const Pattern = struct {
 
 const Result = struct {};
 
+// TESTS
+
+const assert = std.debug.assert;
+
 test "return a compiled Pattern" {
     const compiled = compile("foo");
+    assert(compiled.re_code != null);
+    assert(compiled.errormessage() == null);
     defer compiled.deinit();
 }
 
 test "return a Pattern containing an error" {
     const compiled = compile("[");
-    std.debug.assert(compiled.errornumber == 106);
+    assert(compiled.re_code == null);
+    assert(compiled.errornumber == 106);
     const end = @bitCast(u32, compiled.errorlength);
     const expected = "missing terminating ] for character class";
-    const message = compiled.errorbuffer[0..end];
-    std.debug.assert(std.mem.eql(u8, expected, message));
+    assert(std.mem.eql(u8, expected, compiled.errormessage().?));
     defer compiled.deinit();
 }
+
+test "find all matches of a pattern in a string" {}
 
 // test "print the cImported pcre2 struct" {
 //     const ti = @typeInfo(Pattern).Struct;
