@@ -34,7 +34,7 @@ const pcre2 = @cImport({
 // Zig strings are immutable slices of utf8
 // String literals are zero-terminated, but we don't want that:
 // - pcre2 already uses pointer, length for inputs and outputs.
-// - our regex match results will be backed by the target string,
+// - our regex match results will be backed by the subject string,
 //   so we can't zero terminate them.
 const Str = []const u8;
 
@@ -51,7 +51,7 @@ fn emptyString() Str {
 // Its Zig type is a slice of Strs ([][]const u8, once dealiased)
 // Matches storage is as follows:
 // - list of match results (outer slice): TODO: heap or stack?
-// - each match result Str: backed by the target string's buffer
+// - each match result Str: backed by the subject string's buffer
 const Matches = []Str;
 
 // re.zero_matches is an empty slice of Strs,
@@ -131,8 +131,8 @@ pub fn compile(pattern: Str) Pattern {
 
 /// A structure for:
 /// - holding compiled regex patterns,
-/// - using these compiled patterns to match target strings
-/// - returning match results as slices into the target strings
+/// - using these compiled patterns to match subject strings
+/// - returning match results as slices into the subject strings
 ///
 /// Initialise only with re.compile(pattern)
 ///
@@ -220,14 +220,15 @@ const Pattern = struct {
     // TODO: and look for memory leaks during tests, and use the C heap for actual production code
     // TODO: of course the allocator would be passed during initialisation,
     // TODO: because match_data is variable size and producing during initialisation
-    pub fn findall(self: Pattern, target: Str) !Matches {
+    pub fn findall(self: Pattern, subject: Str) !Matches {
         if (self.re_code == null) {
             return error.BadPattern;
         }
+
         const first_match_code = pcre2.pcre2_match_8(
             self.re_code,
-            @ptrCast([*]const u8, target),
-            target.len, // This is in code units, not characters
+            @ptrCast([*]const u8, subject),
+            subject.len, // This is in code units, not characters
             0, // Offset at which to start matching, in code units
             0, // Option bits
             self.match_data,
@@ -250,7 +251,17 @@ const Pattern = struct {
 
                 return error.UTF;
             },
-            // "the vector of offsets is too small" TODO: Figure out what this means
+            // from https://github.com/PCRE/pcre2/src/pcre2demo.c:
+            //
+            //     /* The output vector wasn't big enough. This should not happen, because we used
+            //     pcre2_match_data_create_from_pattern() above. */
+            //
+            // there's example code there too, seems this is for pathological patterns:
+            //
+            //     /* We must guard against patterns such as /(?=.\K)/ that use \K in an assertion
+            //     to set the start of a match later than its end. In this demonstration program,
+            //     we just detect this case and give up. */
+            //
             .Zero => {
                 // TODO: figure out better logging than debug.warn()
                 std.debug.warn("re.findall(): pcre2_match() returns zero: 'the vector of offsets is too small'\n", .{});
@@ -261,11 +272,17 @@ const Pattern = struct {
             .Positive => first_match_code - 1,
         };
 
+        // std.debug.warn("\n\nre.findall(): pcre2_match() has captured {} regions\n\n", .{captures});
+
+        var ovector = pcre2.pcre2_get_ovector_pointer_8(self.match_data);
+
         // TODO: we have one match, now we continue matching and building
 
         // FIXME: For now, we're returning a hardcoded zero_matches result
         // FIXME: Until we figure out why matching with ".*" asplodes.
-        return zero_matches;
+        // return zero_matches;
+        var a = "a";
+        return &[_]Str{a[0..1]};
     }
 
     pub fn _setError(self: Pattern, message: Str) void {
@@ -279,6 +296,7 @@ const Pattern = struct {
 // TESTS
 //
 
+// move to util.zig eventually
 fn Str_equal(a: Str, b: Str) bool {
     return mem.eql(u8, a, b);
 }
@@ -312,6 +330,7 @@ test "Str_equal" {
     assert(Str_equal(foo1, foo2));
 }
 
+// move to util.zig eventually
 fn Matches_equal(a: Matches, b: Matches) bool {
     if (a.len != b.len) {
         return false;
@@ -358,16 +377,16 @@ test "return a list with zero matches" {
     assert(Matches_equal(matches, zero_matches));
 }
 
-test "return a list with a single match for the whole string" {
-    // we make both regex and target runtime slices
-    var pattern: Str = &[_]u8{ '.', '*' };
-    var target: Str = &[_]u8{ 'Z', 'i', 'g', '!' };
-    // var expected: Matches = &[_]Str{target};
-    var expected = zero_matches;
+test "return a list with a single capture encompassing the whole string" {
+    // we make both regex and subject runtime slices
+    var pattern: Str = &[_]u8{ '(', 'a', ')' };
+    var subject: Str = &[_]u8{'a'};
+    var expected: Matches = &[_]Str{subject};
+    // var expected = zero_matches;
     const compiled = compile(".*");
     defer compiled.deinit();
-    std.debug.warn("Error: {}\n", .{compiled.errormessage()});
     var result = try compiled.findall(pattern);
+    assert(Str_equal(compiled.errormessage(), empty_string));
     assert(Matches_equal(expected, result));
 }
 
