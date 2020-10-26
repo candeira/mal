@@ -9,6 +9,8 @@
 /// Released under both MIT and Apache 2 licenses
 /// TODO: figure out better license language
 
+// TODO: figure out better logging than debug.warn()
+
 // // IMPORTS
 const std = @import("std");
 const allocator = std.heap.c_allocator;
@@ -73,6 +75,20 @@ const pcre2_erroroffset_t = usize;
 const pcre2_errorlength_t = c_int;
 const pcre2_errorbuffer_t = [256:0]u8;
 const pcre2_match_data_t = pcre2.struct_pcre2_real_match_data_8;
+
+// an ovector or output vector is an array of (*start, *end) pointers into the subject string
+const pcre2_Ovector = [*c]usize;
+// we'll be reading them by casting them to a Zig array of structs
+// for cleaner iteration: let the compiler make the assembler neat,
+// but we will make the human-readable code neat
+const pcre2_Match = extern struct {
+    _start: *c,
+    _end: *c,
+
+    fn zigMatch(self: pcre2_Match) Str {}
+};
+
+const pcre2_Matches = [*]pcre2_Match;
 
 // // UTIL (TODO: move eventually to some util.zig grab bag)
 
@@ -197,9 +213,9 @@ const Pattern = struct {
         } else {
             // If there's no compilation error, create the match_data structure and get a pointer.
             // As far as Zig knows, *pcre2.bar pcre2.foo() functions could return null pointers,
-            // so the zig return type is optional pointer ?*pcre2.bar and not *pcre2.bar...
-            // there should be no reason we to get a null, since the re_code is a valid pointer
+            // so the return type Zig sees from C optional pointer ?*pcre2.bar and not *pcre2.bar...
             matcher.match_data = pcre2.pcre2_match_data_create_from_pattern_8(re_code, null);
+            // there should be no reason we get a null, since the re_code is a valid pointer
             if (matcher.match_data == null) unreachable;
         }
 
@@ -217,11 +233,11 @@ const Pattern = struct {
     // Caller becomes owner of memory.
     // results live in C Heap because life's too short
     // TODO: pass an Allocator so we can do things like passing GPA backed by C heap allocator
-    // TODO: and look for memory leaks during tests, and use the C heap for actual production code
-    // TODO: of course the allocator would be passed during initialisation,
-    // TODO: because match_data is variable size and producing during initialisation
+    //     : and look for memory leaks during tests, and use the C heap for actual production code
+    //     : of course the allocator would be passed during initialisation,
+    //     : because match_data is variable size and producing during initialisation
     pub fn findall(self: Pattern, subject: Str) !Matches {
-        if (self.re_code == null) {
+        if (self.match_data == null) {
             return error.BadPattern;
         }
 
@@ -240,49 +256,54 @@ const Pattern = struct {
         // http://pcre.org/current/doc/html/pcre2_match.html
 
         var captures: c_int = switch (sign(first_match_code)) {
-            // "no match and other errors"
             .Negative => {
+                // "no match and other errors"
                 if (first_match_code == pcre2.PCRE2_ERROR_NOMATCH) {
                     return zero_matches;
                 }
                 const template = "re.findall(): pcre2_match() returns {}. TODO: match error codes to zig error values.\n";
-                // TODO: figure out better logging than debug.warn()
                 std.debug.warn(template, .{first_match_code});
 
                 return error.UTF;
             },
-            // from https://github.com/PCRE/pcre2/src/pcre2demo.c:
-            //
-            //     /* The output vector wasn't big enough. This should not happen, because we used
-            //     pcre2_match_data_create_from_pattern() above. */
-            //
-            // there's example code there too, seems this is for pathological patterns:
-            //
-            //     /* We must guard against patterns such as /(?=.\K)/ that use \K in an assertion
-            //     to set the start of a match later than its end. In this demonstration program,
-            //     we just detect this case and give up. */
-            //
             .Zero => {
-                // TODO: figure out better logging than debug.warn()
+                // from https://github.com/PCRE/pcre2/src/pcre2demo.c:
+                //
+                //     /* The output vector wasn't big enough. This should not happen, because we used
+                //     pcre2_match_data_create_from_pattern() above. */
+                //
+                // there's example code there too, seems this is for pathological patterns:
+                //
+                //     /* We must guard against patterns such as /(?=.\K)/ that use \K in an assertion
+                //     to set the start of a match later than its end. In this demonstration program,
+                //     we just detect this case and give up. */
+                //
                 std.debug.warn("re.findall(): pcre2_match() returns zero: 'the vector of offsets is too small'\n", .{});
                 return error.VectorOffsetsErrorWhileAttemptingMatch;
             },
-            // "one more than the highest numbered capturing pair that has been set"
-            // (for example, 1 if there are no captures)
             .Positive => first_match_code - 1,
+            // "one more than the highest numbered capturing pair that has been set"
+            // "(for example, 1 if there are no captures)"
         };
 
-        // std.debug.warn("\n\nre.findall(): pcre2_match() has captured {} regions\n\n", .{captures});
+        std.debug.warn("\n\nre.findall(): pcre2_match() has captured {} regions\n\n", .{captures});
 
-        var ovector = pcre2.pcre2_get_ovector_pointer_8(self.match_data);
+        // subject is a []const u8, the target  of the regex;
+        // ovector is a collection of matches as a an array of start, end offsets into the subject;
 
-        // TODO: we have one match, now we continue matching and building
+        var ovector: pcre2_Ovector = pcre2.pcre2_get_ovector_pointer_8(self.match_data);
+        try self._guardAgainstReverseMatches(ovector);
 
-        // FIXME: For now, we're returning a hardcoded zero_matches result
-        // FIXME: Until we figure out why matching with ".*" asplodes.
-        // return zero_matches;
-        var a = "a";
-        return &[_]Str{a[0..1]};
+        const n_captures = @intCast(usize, captures);
+        var matches: Matches = try allocator.alloc(Str, n_captures);
+        for (matches) |*match, i| {
+            const start = ovector[2 * i];
+            const end = ovector[(2 * i) + 1];
+            match.ptr = subject.ptr + start;
+            match.len = end - start;
+        }
+        // matches is c_heap-allocated, now owned by caller
+        return matches;
     }
 
     pub fn _setError(self: Pattern, message: Str) void {
@@ -290,6 +311,23 @@ const Pattern = struct {
         // self.errorlength.* = len;
         // &self.errorbuffer.* = message;
         // mem.copy(u8, self.errorbuffer[0..len], message[0..len]);
+    }
+
+    pub fn _guardAgainstReverseMatches(self: Pattern, ovector: pcre2_Ovector) !void {
+        // /* We must guard against patterns such as /(?=.\K)/ that use \K in an assertion
+        //     to set the start of a match later than its end. In this demonstration program,
+        // we just detect this case and give up. */
+
+        //     if (ovector[0] > ovector[1])
+        //     {
+        //         printf("\\K was used in an assertion to set the match start after its end.\n"
+        //                    "From end to start the match was: %.*s\n", (int)(ovector[0] - ovector[1]),
+        //                (char *)(subject + ovector[1]));
+        //         printf("Run abandoned\n");
+        //         pcre2_match_data_free(match_data);
+        //         pcre2_code_free(re);
+        //         return 1;
+        // }
     }
 };
 
@@ -374,6 +412,7 @@ test "return a list with zero matches" {
     const compiled = compile("foo");
     defer compiled.deinit();
     const matches = try compiled.findall("bar");
+    defer allocator.free(matches);
     assert(Matches_equal(matches, zero_matches));
 }
 
@@ -382,13 +421,22 @@ test "return a list with a single capture encompassing the whole string" {
     var pattern: Str = &[_]u8{ '(', 'a', ')' };
     var subject: Str = &[_]u8{'a'};
     var expected: Matches = &[_]Str{subject};
-    // var expected = zero_matches;
-    const compiled = compile(".*");
+    // const compiled = compile("((.*)*)");
+    const compiled = compile(pattern);
     defer compiled.deinit();
-    var result = try compiled.findall(pattern);
+    var result = try compiled.findall(subject);
+    defer allocator.free(result);
     assert(Str_equal(compiled.errormessage(), empty_string));
     assert(Matches_equal(expected, result));
 }
+
+test "matches comptime subjects with runtime regex" {}
+
+test "matches runtime subjects with comptime regex" {}
+
+test "matches runtime subjects with runtime regex" {}
+
+test "matches comptime subjects with comptime regex" {}
 
 // test "am I crazy?" {
 //     assert(mem.eql(Matches, zero_matches, zero_matches));
