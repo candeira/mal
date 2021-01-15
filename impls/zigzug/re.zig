@@ -304,6 +304,9 @@ const Pattern = struct {
         }
         // matches is c_heap-allocated, now owned by caller
         return matches;
+
+        // but we have more than one match, dammit
+        // so we must keep going until we have zero captures
     }
 
     pub fn _setError(self: Pattern, message: Str) void {
@@ -373,13 +376,24 @@ fn Matches_equal(a: Matches, b: Matches) bool {
     if (a.len != b.len) {
         return false;
     }
-    for (a[0..a.len]) |item_a, i| {
+    for (a) |item_a, i| {
         var item_b = b[i];
         if (!Str_equal(item_a, item_b)) {
             return false;
         }
     }
     return true;
+}
+
+fn Matches_warn(matches: Matches) void {
+    std.debug.warn("{}: [", .{matches.len});
+    for (matches) |item, i| {
+        std.debug.warn("'{}'", .{item});
+        if ((i + 1) < matches.len) {
+            std.debug.warn(", ", .{});
+        }
+    }
+    std.debug.warn("]\n", .{});
 }
 
 test "Matches_equal" {
@@ -414,6 +428,20 @@ test "return a list with zero matches" {
     const matches = try compiled.findall("bar");
     defer allocator.free(matches);
     assert(Matches_equal(matches, zero_matches));
+}
+
+const patterns = &[_]Str{ "(a)", "(.*)", "((.*)*)" };
+const subjects = &[_]Str{ "", "patata", "dame", "wot" };
+
+test "run patterns over subjects" {
+    std.debug.warn("\n", .{});
+    for (patterns) |pattern| {
+        const c = compile(pattern);
+        for (subjects) |subject| {
+            const results = try c.findall(subject);
+            Matches_warn(results);
+        }
+    }
 }
 
 test "return a list with a single capture encompassing the whole string" {

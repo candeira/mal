@@ -6,6 +6,7 @@ pkgs.mkShell {
     pkgs.zig
     pkgs.python3
     pkgs.pcre2
+    pkgs.libc
 
     # keep this line if you use bash
     pkgs.bashInteractive
