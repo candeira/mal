@@ -262,7 +262,7 @@ const Pattern = struct {
                     return zero_matches;
                 }
                 const template = "re.findall(): pcre2_match() returns {}. TODO: match error codes to zig error values.\n";
-                std.debug.warn(template, .{first_match_code});
+                // std.debug.warn(template, .{first_match_code});
 
                 return error.UTF;
             },
@@ -278,7 +278,7 @@ const Pattern = struct {
                 //     to set the start of a match later than its end. In this demonstration program,
                 //     we just detect this case and give up. */
                 //
-                std.debug.warn("re.findall(): pcre2_match() returns zero: 'the vector of offsets is too small'\n", .{});
+                // std.debug.warn("re.findall(): pcre2_match() returns zero: 'the vector of offsets is too small'\n", .{});
                 return error.VectorOffsetsErrorWhileAttemptingMatch;
             },
             .Positive => first_match_code - 1,
@@ -286,7 +286,7 @@ const Pattern = struct {
             // "(for example, 1 if there are no captures)"
         };
 
-        std.debug.warn("\n\nre.findall(): pcre2_match() has captured {} regions\n\n", .{captures});
+        // std.debug.warn("\n\nre.findall(): pcre2_match() has captured {} regions\n\n", .{captures});
 
         // subject is a []const u8, the target  of the regex;
         // ovector is a collection of matches as a an array of start, end offsets into the subject;
@@ -434,12 +434,12 @@ const patterns = &[_]Str{ "(a)", "(.*)", "((.*)*)" };
 const subjects = &[_]Str{ "", "patata", "dame", "wot" };
 
 test "run patterns over subjects" {
-    std.debug.warn("\n", .{});
+    // std.debug.warn("\n", .{});
     for (patterns) |pattern| {
         const c = compile(pattern);
         for (subjects) |subject| {
             const results = try c.findall(subject);
-            Matches_warn(results);
+            // Matches_warn(results);
         }
     }
 }
