@@ -2,7 +2,7 @@
 ///
 /// implement a limited subset of the Python regular expressions ("re") module API
 /// matcher = re.compile("lala")
-/// matcher.findall("balaladamepanlala")
+/// matcher.captureall("balaladamepanlala")
 /// ["lala", "lala"]
 ///
 /// (c) 2020 Javier Candeira
@@ -236,7 +236,7 @@ const Pattern = struct {
     //     : and look for memory leaks during tests, and use the C heap for actual production code
     //     : of course the allocator would be passed during initialisation,
     //     : because match_data is variable size and producing during initialisation
-    pub fn findall(self: Pattern, subject: Str) !Matches {
+    pub fn captureall(self: Pattern, subject: Str) !Matches {
         if (self.match_data == null) {
             return error.BadPattern;
         }
@@ -255,13 +255,13 @@ const Pattern = struct {
         // Comments in branches of switch are direct quotations from documentation:
         // http://pcre.org/current/doc/html/pcre2_match.html
 
-        var captures: c_int = switch (sign(first_match_code)) {
+        var number_captures_plus_one: c_int = switch (sign(first_match_code)) {
             .Negative => {
                 // "no match and other errors"
                 if (first_match_code == pcre2.PCRE2_ERROR_NOMATCH) {
                     return zero_matches;
                 }
-                const template = "re.findall(): pcre2_match() returns {}. TODO: match error codes to zig error values.\n";
+                const template = "re.captureall(): pcre2_match() returns {}. TODO: match error codes to zig error values.\n";
                 // std.debug.warn(template, .{first_match_code});
 
                 return error.UTF;
@@ -278,15 +278,15 @@ const Pattern = struct {
                 //     to set the start of a match later than its end. In this demonstration program,
                 //     we just detect this case and give up. */
                 //
-                // std.debug.warn("re.findall(): pcre2_match() returns zero: 'the vector of offsets is too small'\n", .{});
+                // std.debug.warn("re.captureall(): pcre2_match() returns zero: 'the vector of offsets is too small'\n", .{});
                 return error.VectorOffsetsErrorWhileAttemptingMatch;
             },
-            .Positive => first_match_code - 1,
+            .Positive => first_match_code,
             // "one more than the highest numbered capturing pair that has been set"
             // "(for example, 1 if there are no captures)"
         };
 
-        // std.debug.warn("\n\nre.findall(): pcre2_match() has captured {} regions\n\n", .{captures});
+        // std.debug.warn("\n\nre.captureall(): pcre2_match() has captured {} regions\n\n", .{captures});
 
         // subject is a []const u8, the target  of the regex;
         // ovector is a collection of matches as a an array of start, end offsets into the subject;
@@ -294,8 +294,8 @@ const Pattern = struct {
         var ovector: pcre2_Ovector = pcre2.pcre2_get_ovector_pointer_8(self.match_data);
         try self._guardAgainstReverseMatches(ovector);
 
-        const n_captures = @intCast(usize, captures);
-        var matches: Matches = try allocator.alloc(Str, n_captures);
+        const number_captures = @intCast(usize, number_captures_plus_one) - 1;
+        var matches: Matches = try allocator.alloc(Str, number_captures);
         for (matches) |*match, i| {
             const start = ovector[2 * i];
             const end = ovector[(2 * i) + 1];
@@ -305,8 +305,8 @@ const Pattern = struct {
         // matches is c_heap-allocated, now owned by caller
         return matches;
 
-        // but we have more than one match, dammit
-        // so we must keep going until we have zero captures
+        // but we have more than one match
+        // ignoring named substrings for now
     }
 
     pub fn _setError(self: Pattern, message: Str) void {
@@ -365,11 +365,11 @@ var twentyone: usize = 21;
 // var foo1: Str = buffer[zero..three];
 // var foo2: Str = buffer[fourteen..seventeen];
 
-test "Str_equal" {
-    var foo1: Str = buffer[zero..three];
-    var foo2: Str = buffer[fourteen..seventeen];
-    assert(Str_equal(foo1, foo2));
-}
+// test "Str_equal" {
+//     var foo1: Str = buffer[zero..three];
+//     var foo2: Str = buffer[fourteen..seventeen];
+//     assert(Str_equal(foo1, foo2));
+// }
 
 // move to util.zig eventually
 fn Matches_equal(a: Matches, b: Matches) bool {
@@ -396,75 +396,86 @@ fn Matches_warn(matches: Matches) void {
     std.debug.warn("]\n", .{});
 }
 
-test "Matches_equal" {
-    var foo1: Str = buffer[zero..three];
-    var foo2: Str = buffer[fourteen..seventeen];
-    var me1: Str = buffer[five..seven];
-    var me2: Str = buffer[nineteen..twentyone];
-    var matches1: Matches = &[_][]const u8{ foo1, me1 };
-    var matches2: Matches = &[_][]const u8{ foo2, me2 };
-    assert(Matches_equal(matches1, matches2));
-}
+// test "Matches_equal" {
+//     var foo1: Str = buffer[zero..three];
+//     var foo2: Str = buffer[fourteen..seventeen];
+//     var me1: Str = buffer[five..seven];
+//     var me2: Str = buffer[nineteen..twentyone];
+//     var matches1: Matches = &[_][]const u8{ foo1, me1 };
+//     var matches2: Matches = &[_][]const u8{ foo2, me2 };
+//     assert(Matches_equal(matches1, matches2));
+// }
 
-test "return a compiled Pattern" {
-    const compiled = compile("foo");
-    defer compiled.deinit();
-    assert(compiled.re_code != null);
-    assert(Str_equal(compiled.errormessage(), empty_string));
-}
+// test "return a compiled Pattern" {
+//     const compiled = compile("foo");
+//     defer compiled.deinit();
+//     assert(compiled.re_code != null);
+//     assert(Str_equal(compiled.errormessage(), empty_string));
+// }
 
-test "return a Pattern containing an error" {
-    const compiled = compile("[");
-    defer compiled.deinit();
-    assert(compiled.re_code == null);
-    assert(compiled.errornumber == 106);
-    const expected = "missing terminating ] for character class";
-    assert(std.mem.eql(u8, expected, compiled.errormessage()));
-}
+// test "return a Pattern containing an error" {
+//     const compiled = compile("[");
+//     defer compiled.deinit();
+//     assert(compiled.re_code == null);
+//     assert(compiled.errornumber == 106);
+//     const expected = "missing terminating ] for character class";
+//     assert(std.mem.eql(u8, expected, compiled.errormessage()));
+// }
 
-test "return a list with zero matches" {
-    const compiled = compile("foo");
-    defer compiled.deinit();
-    const matches = try compiled.findall("bar");
-    defer allocator.free(matches);
-    assert(Matches_equal(matches, zero_matches));
-}
+// test "return a list with zero matches" {
+//     const compiled = compile("foo");
+//     defer compiled.deinit();
+//     const matches = try compiled.captureall("bar");
+//     defer allocator.free(matches);
+//     assert(Matches_equal(matches, zero_matches));
+// }
 
-const patterns = &[_]Str{ "(a)", "(.*)", "((.*)*)" };
-const subjects = &[_]Str{ "", "patata", "dame", "wot" };
+// const patterns = &[_]Str{ "(a)", "(.*)", "((.*)*)", "([pa]*)" };
+const patterns = &[_]Str{ "(a)", "[pa]", "([pa]+)", "(([pa]+)+)" };
+const subjects = &[_]Str{ "", "a", "patata", "dame", "wot" };
 
 test "run patterns over subjects" {
-    // std.debug.warn("\n", .{});
     for (patterns) |pattern| {
         const c = compile(pattern);
         for (subjects) |subject| {
-            const results = try c.findall(subject);
-            // Matches_warn(results);
+            std.debug.warn("\nRunning pattern \"{}\" over subject \"{}\":\n", .{ pattern, subject });
+            const results = try c.captureall(subject);
+            Matches_warn(results);
         }
     }
 }
 
-test "return a list with a single capture encompassing the whole string" {
-    // we make both regex and subject runtime slices
-    var pattern: Str = &[_]u8{ '(', 'a', ')' };
-    var subject: Str = &[_]u8{'a'};
-    var expected: Matches = &[_]Str{subject};
-    // const compiled = compile("((.*)*)");
-    const compiled = compile(pattern);
-    defer compiled.deinit();
-    var result = try compiled.findall(subject);
-    defer allocator.free(result);
-    assert(Str_equal(compiled.errormessage(), empty_string));
-    assert(Matches_equal(expected, result));
-}
+// test "return a list with a single capture encompassing the whole string" {
+//     // we make both regex and subject runtime slices
+//     var pattern: Str = &[_]u8{ '(', 'a', ')' };
+//     var subject: Str = &[_]u8{'a'};
+//     var expected: Matches = &[_]Str{subject};
+//     // const compiled = compile("((.*)*)");
+//     const compiled = compile(pattern);
+//     defer compiled.deinit();
+//     var result = try compiled.captureall(subject);
+//     defer allocator.free(result);
+//     assert(Str_equal(compiled.errormessage(), empty_string));
+//     assert(Matches_equal(expected, result));
+// }
 
-test "matches comptime subjects with runtime regex" {}
+// test "matches runtime subjects with comptime regex" {
+//     const pattern: Str = "(a)";
+//     var subject: Str = &[_]u8{'a'};
+//     var expected: Matches = &[_]Str{subject};
+//     const compiled = compile(pattern);
+//     defer compiled.deinit();
+//     var result = try compiled.captureall(subject);
+//     defer allocator.free(result);
+//     assert(Str_equal(compiled.errormessage(), empty_string));
+//     assert(Matches_equal(expected, result));
+// }
 
-test "matches runtime subjects with comptime regex" {}
+// test "matches comptime subjects with runtime regex" {}
 
-test "matches runtime subjects with runtime regex" {}
+// test "matches runtime subjects with runtime regex" {}
 
-test "matches comptime subjects with comptime regex" {}
+// test "matches comptime subjects with comptime regex" {}
 
 // test "am I crazy?" {
 //     assert(mem.eql(Matches, zero_matches, zero_matches));
